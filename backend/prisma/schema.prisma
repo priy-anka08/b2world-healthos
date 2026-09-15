@@ -1,0 +1,796 @@
+// ==========================================================================
+// B2World HealthOS — Prisma Schema
+// Covers Phase 1-6 entities from the project spec (Section 40).
+// Multi-tenancy: every clinical/operational table carries hospitalId, and
+// every hospital belongs to exactly one organization. Row-level isolation
+// is ALSO enforced in code (see src/common/middleware/tenant.middleware.ts)
+// — never rely on the schema alone for isolation.
+// ==========================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------------------------------------------
+// PLATFORM / TENANCY
+// --------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  status    OrgStatus @default(ACTIVE)
+  planTier  String?  // link to Subscription for real detail
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hospitals     Hospital[]
+  subscriptions Subscription[]
+  users         User[]
+
+  @@map("organizations")
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+model Hospital {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  code           String   @unique
+  address        String?
+  phone          String?
+  email          String?
+  timezone       String   @default("Asia/Kolkata")
+  status         OrgStatus @default(ACTIVE)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  departments  Department[]
+  users        UserHospital[]
+  patients     Patient[]
+  practitioners Practitioner[]
+  staff        Staff[]
+  appointments Appointment[]
+  encounters   Encounter[]
+  beds         Bed[]
+  wards        Ward[]
+  rooms        Room[]
+  inventory    InventoryItem[]
+  suppliers    Supplier[]
+  purchaseOrders PurchaseOrder[]
+  invoices     Invoice[]
+  assets       Asset[]
+  documents    Document[]
+  notifications Notification[]
+  labTests     LabTest[]
+  labOrders    LabOrder[]
+  auditLogs    AuditLog[]
+  aiRequests   AIRequest[]
+
+  @@map("hospitals")
+}
+
+model Department {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  name       String
+  code       String
+  createdAt  DateTime @default(now())
+
+  staff        Staff[]
+  appointments Appointment[]
+
+  @@unique([hospitalId, code])
+  @@map("departments")
+}
+
+// --------------------------------------------------------------------------
+// IDENTITY / RBAC
+// --------------------------------------------------------------------------
+
+enum RoleName {
+  SUPER_ADMIN
+  HOSPITAL_ADMIN
+  DOCTOR
+  NURSE
+  RECEPTIONIST
+  PHARMACIST
+  LAB_TECHNICIAN
+  ACCOUNTANT
+  PATIENT
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        RoleName @unique
+  description String?
+
+  permissions RolePermission[]
+  users       UserHospital[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  resource    String // e.g. "patients", "billing", "ai_copilot"
+  action      String // e.g. "create", "read", "update", "delete", "approve"
+  description String?
+
+  roles RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  email          String   @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  phone          String?
+  isSuperAdmin   Boolean  @default(false)
+  mfaEnabled     Boolean  @default(false)
+  mfaSecret      String?
+  status         UserStatus @default(ACTIVE)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  hospitalRoles UserHospital[]
+  practitioner  Practitioner?
+  staffProfile  Staff?
+  patientProfile Patient?
+  auditLogs     AuditLog[]
+  aiRequests    AIRequest[]
+
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+  PENDING_VERIFICATION
+}
+
+// A user can hold different roles at different hospitals (multi-tenant RBAC)
+model UserHospital {
+  id         String   @id @default(uuid())
+  userId     String
+  hospitalId String
+  roleId     String
+  user       User     @relation(fields: [userId], references: [id])
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  role       Role     @relation(fields: [roleId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, hospitalId, roleId])
+  @@map("user_hospitals")
+}
+
+// --------------------------------------------------------------------------
+// PEOPLE: PATIENTS / PRACTITIONERS / STAFF
+// --------------------------------------------------------------------------
+
+model Patient {
+  id               String   @id @default(uuid())
+  hospitalId       String
+  hospital         Hospital @relation(fields: [hospitalId], references: [id])
+  userId           String?  @unique // set once patient portal account is created
+  user             User?    @relation(fields: [userId], references: [id])
+  patientCode      String   // human-readable ID, unique per hospital
+  firstName        String
+  lastName         String
+  dob              DateTime?
+  gender           String?
+  bloodGroup       String?
+  contactPhone     String?
+  contactEmail     String?
+  address          String?
+  emergencyContact String?
+  allergies        String[] @default([])
+  duplicateOfId    String?  // set by duplicate-detection flow, admin-confirmed only
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  documents    PatientDocument[]
+  consents     PatientConsent[]
+  appointments Appointment[]
+  encounters   Encounter[]
+  labOrders    LabOrder[]
+  invoices     Invoice[]
+
+  @@unique([hospitalId, patientCode])
+  @@map("patients")
+}
+
+model PatientDocument {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  type      String   // prescription, lab_report, discharge_summary, referral
+  fileUrl   String
+  ocrStatus String?  // pending, processed, failed
+  extractedData Json?
+  uploadedById String?
+  createdAt DateTime @default(now())
+
+  @@map("patient_documents")
+}
+
+model PatientConsent {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  type      String   // data_sharing, treatment, ai_processing, etc.
+  granted   Boolean
+  grantedAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@map("patient_consents")
+}
+
+model Practitioner {
+  id           String   @id @default(uuid())
+  hospitalId   String
+  hospital     Hospital @relation(fields: [hospitalId], references: [id])
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  specialization String?
+  licenseNumber  String?
+  departmentId   String?
+
+  appointments Appointment[]
+  encounters   Encounter[]
+
+  @@map("practitioners")
+}
+
+model Staff {
+  id           String   @id @default(uuid())
+  hospitalId   String
+  hospital     Hospital @relation(fields: [hospitalId], references: [id])
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  jobTitle     String?
+
+  shifts Shift[]
+
+  @@map("staff")
+}
+
+model Shift {
+  id        String   @id @default(uuid())
+  staffId   String
+  staff     Staff    @relation(fields: [staffId], references: [id])
+  startsAt  DateTime
+  endsAt    DateTime
+  status    String   @default("scheduled") // scheduled, completed, absent, leave
+
+  @@map("shifts")
+}
+
+// --------------------------------------------------------------------------
+// APPOINTMENTS / ENCOUNTERS / CLINICAL
+// --------------------------------------------------------------------------
+
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  CHECKED_IN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id             String   @id @default(uuid())
+  hospitalId     String
+  hospital       Hospital @relation(fields: [hospitalId], references: [id])
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id])
+  practitionerId String
+  practitioner   Practitioner @relation(fields: [practitionerId], references: [id])
+  departmentId   String?
+  department     Department? @relation(fields: [departmentId], references: [id])
+  scheduledAt    DateTime
+  durationMins   Int      @default(20)
+  status         AppointmentStatus @default(REQUESTED)
+  noShowRiskScore Float?  // AI-generated, advisory only — see spec §14
+  reminderSentAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  encounter Encounter?
+
+  @@map("appointments")
+}
+
+model Encounter {
+  id             String   @id @default(uuid())
+  hospitalId     String
+  hospital       Hospital @relation(fields: [hospitalId], references: [id])
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id])
+  practitionerId String
+  practitioner   Practitioner @relation(fields: [practitionerId], references: [id])
+  appointmentId  String?  @unique
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id])
+  startedAt      DateTime @default(now())
+  endedAt        DateTime?
+  status         String   @default("open") // open, closed
+
+  clinicalNotes ClinicalNote[]
+  observations  Observation[]
+  medicationRequests MedicationRequest[]
+  diagnosticReports DiagnosticReport[]
+
+  @@map("encounters")
+}
+
+model ClinicalNote {
+  id           String   @id @default(uuid())
+  encounterId  String
+  encounter    Encounter @relation(fields: [encounterId], references: [id])
+  authorUserId String
+  content      Json     // structured: chiefComplaint, history, observations, assessment, plan
+  aiGenerated  Boolean  @default(false)
+  aiDraftOf    String?  // reference to ai_outputs.id if generated by AI assistant
+  approvedByUserId String? // must be set before note is considered official — spec §10
+  approvedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@map("clinical_notes")
+}
+
+model Observation {
+  id          String   @id @default(uuid())
+  encounterId String
+  encounter   Encounter @relation(fields: [encounterId], references: [id])
+  code        String   // vital sign / finding code (FHIR-style)
+  value       String
+  unit        String?
+  recordedAt  DateTime @default(now())
+
+  @@map("observations")
+}
+
+model DiagnosticReport {
+  id          String   @id @default(uuid())
+  encounterId String
+  encounter   Encounter @relation(fields: [encounterId], references: [id])
+  labOrderId  String?  @unique
+  labOrder    LabOrder? @relation(fields: [labOrderId], references: [id])
+  summary     String?
+  reviewedByUserId String?
+  reviewedAt  DateTime?
+
+  @@map("diagnostic_reports")
+}
+
+model MedicationRequest {
+  id          String   @id @default(uuid())
+  encounterId String
+  encounter   Encounter @relation(fields: [encounterId], references: [id])
+  medicationId String?
+  medication  InventoryItem? @relation(fields: [medicationId], references: [id])
+  dosage      String
+  frequency   String
+  durationDays Int?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@map("medication_requests")
+}
+
+// --------------------------------------------------------------------------
+// LABORATORY
+// --------------------------------------------------------------------------
+
+model LabTest {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  name       String
+  code       String
+  price      Decimal  @db.Decimal(10, 2)
+
+  orders LabOrder[]
+
+  @@unique([hospitalId, code])
+  @@map("lab_tests")
+}
+
+model LabOrder {
+  id            String   @id @default(uuid())
+  hospitalId    String
+  hospital      Hospital @relation(fields: [hospitalId], references: [id])
+  patientId     String
+  patient       Patient  @relation(fields: [patientId], references: [id])
+  labTestId     String
+  labTest       LabTest  @relation(fields: [labTestId], references: [id])
+  orderedByUserId String
+  status        String   @default("ordered") // ordered, sample_collected, processing, resulted, reviewed
+  technicianUserId String?
+  predictedCompletionAt DateTime? // AI turnaround prediction — spec §22
+  createdAt     DateTime @default(now())
+
+  results LabResult[]
+  diagnosticReport DiagnosticReport?
+
+  @@map("lab_orders")
+}
+
+model LabResult {
+  id         String   @id @default(uuid())
+  labOrderId String
+  labOrder   LabOrder @relation(fields: [labOrderId], references: [id])
+  parameter  String
+  value      String
+  unit       String?
+  referenceRange String?
+  flag       String?  // normal, high, low, critical
+  aiExtracted Boolean @default(false) // spec §21 — human verification required before this is trusted
+  verifiedByUserId String?
+  createdAt  DateTime @default(now())
+
+  @@map("lab_results")
+}
+
+// --------------------------------------------------------------------------
+// BEDS / WARDS / ROOMS
+// --------------------------------------------------------------------------
+
+model Ward {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  name       String
+
+  rooms Room[]
+
+  @@map("wards")
+}
+
+model Room {
+  id         String   @id @default(uuid())
+  wardId     String
+  ward       Ward     @relation(fields: [wardId], references: [id])
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  number     String
+
+  beds Bed[]
+
+  @@map("rooms")
+}
+
+model Bed {
+  id         String   @id @default(uuid())
+  roomId     String
+  room       Room     @relation(fields: [roomId], references: [id])
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  code       String
+  status     String   @default("available") // available, occupied, maintenance, reserved
+
+  @@unique([hospitalId, code])
+  @@map("beds")
+}
+
+// --------------------------------------------------------------------------
+// PHARMACY / INVENTORY
+// --------------------------------------------------------------------------
+
+model InventoryItem {
+  id            String   @id @default(uuid())
+  hospitalId    String
+  hospital      Hospital @relation(fields: [hospitalId], references: [id])
+  name          String
+  category      String   // medicine, consumable, equipment_part
+  unit          String
+  reorderLevel  Int      @default(10)
+  currentStock  Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  batches      InventoryBatch[]
+  medicationRequests MedicationRequest[]
+
+  @@map("inventory")
+}
+
+model InventoryBatch {
+  id           String   @id @default(uuid())
+  itemId       String
+  item         InventoryItem @relation(fields: [itemId], references: [id])
+  batchNumber  String
+  quantity     Int
+  expiryDate   DateTime
+  supplierId   String?
+  supplier     Supplier? @relation(fields: [supplierId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@map("inventory_batches")
+}
+
+model Supplier {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  name       String
+  contact    String?
+  email      String?
+
+  batches InventoryBatch[]
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  status     String   @default("draft") // draft, sent, received, cancelled
+  totalAmount Decimal @db.Decimal(12, 2) @default(0)
+  createdAt  DateTime @default(now())
+
+  @@map("purchase_orders")
+}
+
+// --------------------------------------------------------------------------
+// BILLING / FINANCE
+// --------------------------------------------------------------------------
+
+model Invoice {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  patientId  String
+  patient    Patient  @relation(fields: [patientId], references: [id])
+  lineItems  Json     // [{type: consultation|lab|pharmacy|room, description, amount}]
+  totalAmount Decimal @db.Decimal(12, 2)
+  status     String   @default("unpaid") // unpaid, partial, paid, refunded
+  createdAt  DateTime @default(now())
+
+  payments Payment[]
+  refunds  Refund[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
+  amount    Decimal  @db.Decimal(12, 2)
+  method    String   // cash, card, upi, insurance
+  paidAt    DateTime @default(now())
+
+  @@map("payments")
+}
+
+model Refund {
+  id        String   @id @default(uuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
+  amount    Decimal  @db.Decimal(12, 2)
+  reason    String?
+  refundedAt DateTime @default(now())
+
+  @@map("refunds")
+}
+
+// --------------------------------------------------------------------------
+// ASSETS
+// --------------------------------------------------------------------------
+
+model Asset {
+  id           String   @id @default(uuid())
+  hospitalId   String
+  hospital     Hospital @relation(fields: [hospitalId], references: [id])
+  name         String
+  category     String   // CT, MRI, X-Ray, Ultrasound, Ventilator, Monitor, Other
+  location     String?
+  status       String   @default("operational") // operational, maintenance, decommissioned
+  purchaseDate DateTime?
+  warrantyUntil DateTime?
+  maintenanceRiskScore Float? // AI-generated, advisory — spec §29
+
+  maintenanceRecords MaintenanceRecord[]
+
+  @@map("assets")
+}
+
+model MaintenanceRecord {
+  id        String   @id @default(uuid())
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id])
+  type      String   // scheduled, repair, inspection
+  notes     String?
+  performedAt DateTime @default(now())
+
+  @@map("maintenance_records")
+}
+
+// --------------------------------------------------------------------------
+// NOTIFICATIONS / MESSAGES / DOCUMENTS
+// --------------------------------------------------------------------------
+
+model Notification {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  userId     String?
+  channel    String   // in_app, email, sms
+  title      String
+  body       String
+  readAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  senderId   String
+  recipientId String
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@map("messages")
+}
+
+model Document {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  title      String
+  category   String   // sop, policy, guideline, equipment_manual, department_doc
+  fileUrl    String
+  uploadedByUserId String
+  createdAt  DateTime @default(now())
+
+  chunks DocumentChunk[]
+
+  @@map("documents")
+}
+
+// Used by the Hospital AI RAG Assistant (spec §13-14 architecture)
+model DocumentChunk {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+  content    String
+  embedding  Unsupported("vector(768)")? // requires pgvector extension
+
+  @@map("document_chunks")
+}
+
+model Embedding {
+  id         String   @id @default(uuid())
+  sourceType String   // e.g. "patient_note", "document_chunk"
+  sourceId   String
+  vector     Unsupported("vector(768)")?
+  createdAt  DateTime @default(now())
+
+  @@map("embeddings")
+}
+
+// --------------------------------------------------------------------------
+// AI GOVERNANCE (spec §38) — every AI feature must log through this
+// --------------------------------------------------------------------------
+
+model AIRequest {
+  id           String   @id @default(uuid())
+  hospitalId   String
+  hospital     Hospital @relation(fields: [hospitalId], references: [id])
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  feature      String   // documentation_assistant, clinical_summary, rag_assistant, copilot, ocr, no_show_prediction, etc.
+  inputSummary String?  // do NOT store raw PHI here beyond what's necessary; scope carefully
+  dataScope    Json?    // which records/patients this request was authorized to touch
+  createdAt    DateTime @default(now())
+
+  outputs  AIOutput[]
+
+  @@map("ai_requests")
+}
+
+model AIOutput {
+  id             String   @id @default(uuid())
+  aiRequestId    String
+  aiRequest      AIRequest @relation(fields: [aiRequestId], references: [id])
+  output         Json
+  requiresApproval Boolean @default(true)
+  approvedByUserId String?
+  approvedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  feedback AIFeedback[]
+
+  @@map("ai_outputs")
+}
+
+model AIFeedback {
+  id         String   @id @default(uuid())
+  aiOutputId String
+  aiOutput   AIOutput @relation(fields: [aiOutputId], references: [id])
+  userId     String
+  rating     Int      // 1-5 or thumbs (-1/1)
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@map("ai_feedback")
+}
+
+// --------------------------------------------------------------------------
+// AUDIT (mandatory — spec §37)
+// --------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  hospitalId String?
+  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String   // e.g. "patient.view", "invoice.refund", "ai_copilot.query"
+  resourceType String?
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([hospitalId, createdAt])
+  @@map("audit_logs")
+}
+
+// --------------------------------------------------------------------------
+// COMMERCIALIZATION (Phase 6)
+// --------------------------------------------------------------------------
+
+model Subscription {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  planName       String   // e.g. starter, growth, enterprise
+  status         String   @default("active") // active, trialing, past_due, cancelled
+  seatLimit      Int?
+  usageLimits    Json?    // e.g. { "aiRequestsPerMonth": 5000 }
+  currentPeriodEnd DateTime?
+  createdAt      DateTime @default(now())
+
+  @@map("subscriptions")
+}
