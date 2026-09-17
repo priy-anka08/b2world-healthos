@@ -38,7 +38,7 @@ import { fhirRouter } from "@/modules/fhir/fhir.routes";
 // Phase 2+ stub routers — see each module's README.md for what to build.
 import { stubRouter as stubInventory } from "@/modules/inventory/inventory.routes";
 import { stubRouter as stubAiOcr } from "@/modules/ai-ocr/ai-ocr.routes";
-import { stubRouter as stubAiRag } from "@/modules/ai-rag/ai-rag.routes";
+import { aiRagRouter } from "@/modules/ai-rag/ai-rag.routes";
 
 export function createApp() {
   const app = express();
@@ -93,7 +93,7 @@ export function createApp() {
   // Phase 2-6 modules (stubbed — return 501 until implemented)
   v1.use("/inventory", stubInventory);
   v1.use("/ai/ocr", stubAiOcr);
-  v1.use("/ai/rag", stubAiRag);
+  v1.use("/ai/rag", aiRagRouter);
 
   app.use("/api/v1", v1);
 

@@ -1,30 +1,75 @@
 import { Router } from "express";
+import { z } from "zod";
 import { authMiddleware } from "@/common/middleware/auth.middleware";
 import { requireTenant } from "@/common/middleware/tenant.middleware";
+import { requirePermission } from "@/common/guards/rbac.guard";
+import { writeAuditLog } from "@/common/utils/audit";
+import { ingestDocument, queryRAG, listIngestedDocuments } from "./ai-rag.service";
 
-/**
- * STUB MODULE — Phase 4
- *
- * Hospital knowledge RAG assistant (spec sections 13-14). Chunking + embeddings + pgvector retrieval, generation via the ai-service.
- *
- * Follow the same pattern as the fully-built `patients` or `appointments`
- * modules in this repo:
- *   1. Write a `*.service.ts` with plain functions that always filter by
- *      `hospitalId` first in every Prisma query (see tenant.middleware.ts).
- *   2. Wire routes here behind `authMiddleware`, `requireTenant`, and
- *      `requirePermission("ai_rag", "<action>")`.
- *   3. Call `writeAuditLog(...)` for every read/write of sensitive data.
- *   4. Add integration tests proving cross-tenant access is blocked.
- *
- * Remove the 501 stub handler below once implemented.
- */
-export const stubRouter = Router();
-stubRouter.use(authMiddleware, requireTenant);
+export const aiRagRouter = Router();
+aiRagRouter.use(authMiddleware, requireTenant);
 
-stubRouter.all("*", (_req, res) => {
-  res.status(501).json({
-    error: "Not implemented yet",
-    module: "ai-rag",
-    phase: "Phase 4",
-  });
+// ─── Query the RAG assistant ───
+const querySchema = z.object({
+  question: z.string().min(3).max(1000),
+  topK: z.number().int().min(1).max(20).optional(),
+});
+
+aiRagRouter.post("/query", requirePermission("ai_rag", "read"), async (req, res, next) => {
+  try {
+    const body = querySchema.parse(req.body);
+    const result = await queryRAG({
+      hospitalId: req.tenantHospitalId!,
+      userId: req.auth!.userId,
+      question: body.question,
+      topK: body.topK,
+    });
+
+    await writeAuditLog({
+      hospitalId: req.tenantHospitalId,
+      userId: req.auth!.userId,
+      action: "ai_rag.query",
+      metadata: { question: body.question.slice(0, 100) },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Ingest a document into the RAG system ───
+const ingestSchema = z.object({
+  documentId: z.string().uuid(),
+  fileContent: z.string().min(1),
+});
+
+aiRagRouter.post("/ingest", requirePermission("ai_rag", "create"), async (req, res, next) => {
+  try {
+    const body = ingestSchema.parse(req.body);
+    const result = await ingestDocument({
+      hospitalId: req.tenantHospitalId!,
+      documentId: body.documentId,
+      title: "",
+      fileContent: body.fileContent,
+    });
+
+    await writeAuditLog({
+      hospitalId: req.tenantHospitalId,
+      userId: req.auth!.userId,
+      action: "ai_rag.ingest",
+      resourceId: body.documentId,
+      metadata: { chunksCreated: result.chunksCreated },
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── List ingested documents ───
+aiRagRouter.get("/documents", requirePermission("ai_rag", "read"), async (req, res) => {
+  const docs = await listIngestedDocuments(req.tenantHospitalId!);
+  res.json(docs);
 });

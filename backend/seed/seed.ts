@@ -14,12 +14,14 @@ const ROLE_PERMISSIONS: Record<RoleName, [string, string][]> = {
     ["pharmacy", "read"], ["pharmacy", "create"], ["laboratory", "read"], ["laboratory", "create"],
                 ["beds", "read"], ["beds", "create"], ["assets", "read"], ["assets", "create"],
     ["documents", "read"], ["documents", "create"],
+    ["ai_rag", "read"], ["ai_rag", "create"],
     ["clinical_notes", "read"], ["clinical_notes", "create"], ["prescriptions", "read"], ["prescriptions", "create"],
   ],
   DOCTOR: [
     ["patients", "read"], ["appointments", "read"], ["appointments", "create"],
     ["clinical_notes", "read"], ["clinical_notes", "create"], ["prescriptions", "read"], ["prescriptions", "create"],
     ["ai_copilot", "read"], ["practitioners", "read"], ["laboratory", "read"], ["laboratory", "create"],
+    ["ai_rag", "read"],
   ],
   NURSE: [
     ["patients", "read"], ["appointments", "read"], ["beds", "read"], ["beds", "create"],
