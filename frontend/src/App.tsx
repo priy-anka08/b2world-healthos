@@ -12,6 +12,7 @@ import StaffPage from "@/pages/staff/StaffPage";
 import AssetsPage from "@/pages/assets/AssetsPage";
 import AiToolsPage from "@/pages/ai-tools/AiToolsPage";
 import PredictionsPage from "@/pages/ai-tools/PredictionsPage";
+import DocumentOCRPage from "@/pages/ai-tools/DocumentOCRPage";
 import SuppliersPage from "@/pages/suppliers/SuppliersPage";
 import ReportsPage from "@/pages/reports/ReportsPage";
 import DocumentsPage from "@/pages/documents/DocumentsPage";
@@ -21,6 +22,7 @@ import DepartmentsPage from "@/pages/departments/DepartmentsPage";
 import AuditLogsPage from "@/pages/audit-logs/AuditLogsPage";
 import SecuritySettingsPage from "@/pages/security/SecuritySettingsPage";
 import PatientPortalPage from "@/pages/portal/PatientPortalPage";
+import InventoryPage from "@/pages/inventory/InventoryPage";
 import AppLayout from "@/components/layout/AppLayout";
 import ProtectedRoute from "@/routes/ProtectedRoute";
 
@@ -46,6 +48,7 @@ export default function App() {
         <Route path="/assets" element={<AssetsPage />} />
         <Route path="/ai-tools" element={<AiToolsPage />} />
         <Route path="/predictions" element={<PredictionsPage />} />
+        <Route path="/document-ocr" element={<DocumentOCRPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
@@ -55,6 +58,7 @@ export default function App() {
         <Route path="/audit-logs" element={<AuditLogsPage />} />
         <Route path="/security" element={<SecuritySettingsPage />} />
         <Route path="/portal" element={<PatientPortalPage />} />
+        <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/admin/doctors" element={<DoctorsPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

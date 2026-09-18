@@ -8,6 +8,8 @@ sentence-transformers==3.0.1
 # OCR (spec suggests PaddleOCR for the MVP)
 paddleocr==2.8.1
 paddlepaddle==2.6.2
+Pillow==10.4.0
+numpy==1.26.4
 # Speech (Phase 5 voice assistant)
 faster-whisper==1.0.3
 python-multipart==0.0.9

@@ -16,12 +16,14 @@ const ROLE_PERMISSIONS: Record<RoleName, [string, string][]> = {
     ["documents", "read"], ["documents", "create"],
     ["ai_rag", "read"], ["ai_rag", "create"],
     ["clinical_notes", "read"], ["clinical_notes", "create"], ["prescriptions", "read"], ["prescriptions", "create"],
+    ["ai_ocr", "read"], ["ai_ocr", "create"],
   ],
   DOCTOR: [
     ["patients", "read"], ["appointments", "read"], ["appointments", "create"],
     ["clinical_notes", "read"], ["clinical_notes", "create"], ["prescriptions", "read"], ["prescriptions", "create"],
     ["ai_copilot", "read"], ["practitioners", "read"], ["laboratory", "read"], ["laboratory", "create"],
     ["ai_rag", "read"],
+    ["ai_ocr", "read"], ["ai_ocr", "create"],
   ],
   NURSE: [
     ["patients", "read"], ["appointments", "read"], ["beds", "read"], ["beds", "create"],
@@ -30,6 +32,7 @@ const ROLE_PERMISSIONS: Record<RoleName, [string, string][]> = {
   RECEPTIONIST: [
     ["patients", "read"], ["patients", "create"], ["appointments", "read"], ["appointments", "create"],
     ["practitioners", "read"], ["beds", "read"],
+    ["ai_ocr", "create"],
   ],
   PHARMACIST: [["pharmacy", "read"], ["pharmacy", "create"], ["inventory", "read"], ["inventory", "create"]],
   LAB_TECHNICIAN: [["laboratory", "read"], ["laboratory", "create"], ["patients", "read"]],
