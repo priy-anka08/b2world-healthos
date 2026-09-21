@@ -2,13 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "@/common/middleware/auth.middleware";
 import { requireTenant } from "@/common/middleware/tenant.middleware";
-import { createNotification, listNotifications, markRead } from "./notifications.service";
+import { requirePermission } from "@/common/guards/rbac.guard";
+import { createNotification, listNotifications, markRead, runDailyChecks } from "./notifications.service";
 
 export const notificationsRouter = Router();
 notificationsRouter.use(authMiddleware, requireTenant);
 
-// No requirePermission gate here — every authenticated staff member should
-// see their own hospital-wide/personal notifications regardless of role.
 notificationsRouter.get("/", async (req, res) => {
   res.json(await listNotifications(req.tenantHospitalId!, req.auth!.userId));
 });
@@ -17,7 +16,7 @@ const createSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   channel: z.enum(["in_app", "email", "sms"]).default("in_app"),
-  userId: z.string().uuid().optional(), // omit to broadcast hospital-wide
+  userId: z.string().uuid().optional(),
 });
 
 notificationsRouter.post("/", async (req, res, next) => {
@@ -38,6 +37,16 @@ notificationsRouter.post("/:id/read", async (req, res, next) => {
     if (err instanceof Error && "statusCode" in err) {
       return res.status((err as never as { statusCode: number }).statusCode).json({ error: err.message });
     }
+    next(err);
+  }
+});
+
+// Gated with the existing "reports" permission (HOSPITAL_ADMIN only) —
+// this is an admin sweep action, not a per-user notification fetch.
+notificationsRouter.post("/run-checks", requirePermission("reports", "read"), async (req, res, next) => {
+  try {
+    res.json(await runDailyChecks(req.tenantHospitalId!));
+  } catch (err) {
     next(err);
   }
 });

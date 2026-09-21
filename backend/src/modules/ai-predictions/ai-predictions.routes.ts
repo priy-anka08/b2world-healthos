@@ -8,6 +8,8 @@ import {
   forecastBedOccupancy,
   forecastLabTurnaround,
   getRevenueAnalytics,
+  predictNoShowRisk,
+  scoreUpcomingNoShowRisk,
   suggestReorders,
 } from "./ai-predictions.service";
 
@@ -36,4 +38,19 @@ aiPredictionsRouter.get("/lab-turnaround", requirePermission("laboratory", "read
 
 aiPredictionsRouter.get("/inventory-anomalies", requirePermission("pharmacy", "read"), async (req, res) => {
   res.json(await detectInventoryAnomalies(req.tenantHospitalId!));
+});
+
+aiPredictionsRouter.get("/no-show-risk", requirePermission("appointments", "read"), async (req, res) => {
+  res.json(await scoreUpcomingNoShowRisk(req.tenantHospitalId!));
+});
+
+aiPredictionsRouter.get("/no-show-risk/:appointmentId", requirePermission("appointments", "read"), async (req, res, next) => {
+  try {
+    res.json(await predictNoShowRisk(req.tenantHospitalId!, req.params.appointmentId));
+  } catch (err) {
+    if (err instanceof Error && "statusCode" in err) {
+      return res.status((err as never as { statusCode: number }).statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
 });

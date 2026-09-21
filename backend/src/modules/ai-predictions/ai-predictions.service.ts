@@ -260,3 +260,47 @@ export async function detectInventoryAnomalies(hospitalId: string) {
       "Flags items dispensed at 2x+ their recent baseline rate — could be genuine demand, a data-entry error, or shrinkage. Worth a manual check, not a conclusion.",
   };
 }
+
+// --- No-show prediction (spec §14) ---
+export async function predictNoShowRisk(hospitalId: string, appointmentId: string) {
+  const appointment = await prisma.appointment.findFirst({ where: { id: appointmentId, hospitalId } });
+  if (!appointment) throw Object.assign(new Error("Appointment not found"), { statusCode: 404 });
+
+  const pastAppointments = await prisma.appointment.findMany({
+    where: { hospitalId, patientId: appointment.patientId, id: { not: appointmentId }, scheduledAt: { lt: new Date() } },
+    select: { status: true },
+  });
+
+  const total = pastAppointments.length;
+  const noShows = pastAppointments.filter((a) => a.status === "NO_SHOW").length;
+  const historicalNoShowRate = total === 0 ? 0.15 : noShows / total; // 15% base rate for first-time patients
+
+  const leadTimeHours = (appointment.scheduledAt.getTime() - Date.now()) / (1000 * 60 * 60);
+  const leadTimeFactor = leadTimeHours > 168 ? 0.1 : leadTimeHours > 48 ? 0.05 : 0;
+
+  const riskScore = Math.min(0.95, Math.round((historicalNoShowRate + leadTimeFactor) * 100) / 100);
+
+  await prisma.appointment.update({ where: { id: appointmentId }, data: { noShowRiskScore: riskScore } });
+
+  return {
+    appointmentId,
+    noShowProbability: riskScore,
+    basedOnPastAppointments: total,
+    recommendation: riskScore >= 0.4 ? "Send appointment reminder" : null,
+    isEstimate: true,
+    method: "rule_based_v1",
+    disclaimer:
+      "A heuristic score from this patient's past attendance and how far out the appointment is booked. Never use this to deny or restrict a patient's access to care (spec §14).",
+  };
+}
+
+export async function scoreUpcomingNoShowRisk(hospitalId: string) {
+  const in48h = new Date(Date.now() + 48 * 60 * 60 * 1000);
+  const upcoming = await prisma.appointment.findMany({
+    where: { hospitalId, scheduledAt: { gte: new Date(), lte: in48h }, status: { in: ["REQUESTED", "CONFIRMED"] } },
+    select: { id: true },
+  });
+  const results = [];
+  for (const a of upcoming) results.push(await predictNoShowRisk(hospitalId, a.id));
+  return results;
+}

@@ -4,13 +4,24 @@ import { authMiddleware } from "@/common/middleware/auth.middleware";
 import { requireTenant } from "@/common/middleware/tenant.middleware";
 import { requirePermission } from "@/common/guards/rbac.guard";
 import { writeAuditLog } from "@/common/utils/audit";
-import { createAsset, listAssets, logMaintenance, setAssetStatus } from "./assets.service";
+import {
+  calculateMaintenanceRisk,
+  createAsset,
+  listAssets,
+  logMaintenance,
+  scoreAllAssetMaintenanceRisk,
+  setAssetStatus,
+} from "./assets.service";
 
 export const assetsRouter = Router();
 assetsRouter.use(authMiddleware, requireTenant);
 
 assetsRouter.get("/", requirePermission("assets", "read"), async (req, res) => {
   res.json(await listAssets(req.tenantHospitalId!));
+});
+
+assetsRouter.get("/maintenance-risk", requirePermission("assets", "read"), async (req, res) => {
+  res.json(await scoreAllAssetMaintenanceRisk(req.tenantHospitalId!));
 });
 
 const createSchema = z.object({
@@ -33,6 +44,17 @@ assetsRouter.post("/", requirePermission("assets", "create"), async (req, res, n
     });
     res.status(201).json(asset);
   } catch (err) {
+    next(err);
+  }
+});
+
+assetsRouter.get("/:id/maintenance-risk", requirePermission("assets", "read"), async (req, res, next) => {
+  try {
+    res.json(await calculateMaintenanceRisk(req.tenantHospitalId!, req.params.id));
+  } catch (err) {
+    if (err instanceof Error && "statusCode" in err) {
+      return res.status((err as never as { statusCode: number }).statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });

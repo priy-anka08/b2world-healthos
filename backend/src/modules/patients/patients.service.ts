@@ -24,11 +24,6 @@ interface PossibleDuplicate {
   matchReason: string[];
 }
 
-/**
- * Spec §5: "If a new patient appears similar to an existing patient, flag
- * 'Possible duplicate patient record.' A human administrator must confirm
- * any merge." — this NEVER auto-merges. It only returns candidates.
- */
 export async function findPossibleDuplicates(
   hospitalId: string,
   input: Pick<CreatePatientInput, "firstName" | "lastName" | "dob" | "contactPhone">
@@ -55,14 +50,7 @@ export async function findPossibleDuplicates(
     if (input.contactPhone && c.contactPhone === input.contactPhone) {
       reasons.push("phone_match");
     }
-    return {
-      id: c.id,
-      patientCode: c.patientCode,
-      firstName: c.firstName,
-      lastName: c.lastName,
-      dob: c.dob,
-      matchReason: reasons,
-    };
+    return { id: c.id, patientCode: c.patientCode, firstName: c.firstName, lastName: c.lastName, dob: c.dob, matchReason: reasons };
   });
 }
 
@@ -90,8 +78,6 @@ export async function listPatients(hospitalId: string, search?: string) {
   });
 }
 
-// Always scope by hospitalId even on a get-by-id — this is what stops
-// Hospital A from reading Hospital B's patient by guessing/enumerating ids.
 export async function getPatientById(hospitalId: string, id: string) {
   return prisma.patient.findFirst({
     where: { id, hospitalId },
@@ -102,4 +88,42 @@ export async function getPatientById(hospitalId: string, id: string) {
       invoices: true,
     },
   });
+}
+
+// --- Consent management (spec §37) ---
+export async function setConsent(hospitalId: string, patientId: string, type: string, granted: boolean) {
+  const patient = await prisma.patient.findFirst({ where: { id: patientId, hospitalId } });
+  if (!patient) throw Object.assign(new Error("Patient not found"), { statusCode: 404 });
+
+  return prisma.patientConsent.create({ data: { patientId, type, granted, revokedAt: granted ? null : new Date() } });
+}
+
+export async function listConsents(hospitalId: string, patientId: string) {
+  const patient = await prisma.patient.findFirst({ where: { id: patientId, hospitalId } });
+  if (!patient) throw Object.assign(new Error("Patient not found"), { statusCode: 404 });
+
+  return prisma.patientConsent.findMany({ where: { patientId }, orderBy: { grantedAt: "desc" } });
+}
+
+// --- Data export controls (spec §37) ---
+// A structured export of everything this hospital holds about one patient —
+// read-only, and every query is scoped to this patientId, so it can never
+// leak another patient's data even indirectly.
+export async function exportPatientData(hospitalId: string, patientId: string) {
+  const patient = await prisma.patient.findFirst({
+    where: { id: patientId, hospitalId },
+    include: {
+      documents: true,
+      appointments: true,
+      encounters: {
+        include: { clinicalNotes: true, medicationRequests: true, observations: true, diagnosticReports: true },
+      },
+      invoices: { include: { payments: true, refunds: true } },
+    },
+  });
+  if (!patient) throw Object.assign(new Error("Patient not found"), { statusCode: 404 });
+
+  const consents = await prisma.patientConsent.findMany({ where: { patientId } });
+
+  return { exportedAt: new Date().toISOString(), patient, consents };
 }

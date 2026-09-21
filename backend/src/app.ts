@@ -3,8 +3,10 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
+import swaggerUi from "swagger-ui-express";
 import { env } from "@/config/env";
 import { errorHandler } from "@/common/errors/error-handler";
+import { openApiSpec } from "@/config/openapi";
 
 import { authRouter } from "@/modules/auth/auth.routes";
 import { organizationsRouter } from "@/modules/organizations/organizations.routes";
@@ -38,6 +40,8 @@ import { fhirRouter } from "@/modules/fhir/fhir.routes";
 import { aiRagRouter } from "@/modules/ai-rag/ai-rag.routes";
 import { inventoryRouter } from "@/modules/inventory/inventory.routes";
 import { aiOcrRouter } from "@/modules/ai-ocr/ai-ocr.routes";
+import { aiVoiceRouter } from "@/modules/ai-voice/ai-voice.routes";
+import { aiOrchestratorRouter } from "@/modules/ai-orchestrator/ai-orchestrator.routes";
 
 export function createApp() {
   const app = express();
@@ -46,17 +50,11 @@ export function createApp() {
   app.use(cors({ origin: env.corsOrigin, credentials: true }));
   app.use(express.json({ limit: "5mb" }));
   app.use(pinoHttp({ redact: ["req.headers.authorization"] }));
-  app.use(
-    rateLimit({
-      windowMs: 15 * 60 * 1000,
-      limit: 500,
-      standardHeaders: true,
-    })
-  );
+  app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 500, standardHeaders: true }));
 
   app.get("/health", (_req, res) => res.json({ status: "ok", service: "healthos-backend" }));
+  app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
-  // --- API v1 ---
   const v1 = express.Router();
   v1.use("/auth", authRouter);
   v1.use("/organizations", organizationsRouter);
@@ -67,7 +65,6 @@ export function createApp() {
   v1.use("/practitioners", practitionersRouter);
   v1.use("/appointments", appointmentsRouter);
   v1.use("/audit-logs", auditRouter);
-
   v1.use("/pharmacy", pharmacyRouter);
   v1.use("/billing", billingRouter);
   v1.use("/laboratory", laboratoryRouter);
@@ -91,9 +88,10 @@ export function createApp() {
   v1.use("/ai/rag", aiRagRouter);
   v1.use("/inventory", inventoryRouter);
   v1.use("/ai/ocr", aiOcrRouter);
+  v1.use("/ai/voice", aiVoiceRouter);
+  v1.use("/ai/orchestrator", aiOrchestratorRouter);
 
   app.use("/api/v1", v1);
-
   app.use(errorHandler);
   return app;
 }

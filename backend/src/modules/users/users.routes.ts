@@ -6,6 +6,7 @@ import { requireTenant } from "@/common/middleware/tenant.middleware";
 import { requirePermission } from "@/common/guards/rbac.guard";
 import { hashPassword } from "@/modules/auth/auth.service";
 import { writeAuditLog } from "@/common/utils/audit";
+import { countOrgSeats, getActiveSubscription } from "@/modules/subscriptions/subscriptions.service";
 
 export const usersRouter = Router();
 usersRouter.use(authMiddleware, requireTenant);
@@ -33,20 +34,32 @@ const inviteSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   temporaryPassword: z.string().min(8),
-  role: z.enum([
-    "HOSPITAL_ADMIN",
-    "DOCTOR",
-    "NURSE",
-    "RECEPTIONIST",
-    "PHARMACIST",
-    "LAB_TECHNICIAN",
-    "ACCOUNTANT",
-  ]),
+  role: z.enum(["HOSPITAL_ADMIN", "DOCTOR", "NURSE", "RECEPTIONIST", "PHARMACIST", "LAB_TECHNICIAN", "ACCOUNTANT"]),
 });
 
 usersRouter.post("/", requirePermission("users", "create"), async (req, res, next) => {
   try {
     const body = inviteSchema.parse(req.body);
+
+    // Seat-limit check (spec Phase 6 "usage limits"). Seats are counted
+    // org-wide (not per-hospital) since a Subscription belongs to the
+    // Organization, not a single Hospital.
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: req.tenantHospitalId! },
+      select: { organizationId: true },
+    });
+    if (hospital) {
+      const subscription = await getActiveSubscription(hospital.organizationId);
+      if (subscription?.seatLimit) {
+        const currentSeats = await countOrgSeats(hospital.organizationId);
+        if (currentSeats >= subscription.seatLimit) {
+          return res.status(402).json({
+            error: `Seat limit reached (${subscription.seatLimit} on the "${subscription.planName}" plan). Upgrade the subscription to add more staff.`,
+          });
+        }
+      }
+    }
+
     const role = await prisma.role.findUnique({ where: { name: body.role } });
     if (!role) return res.status(400).json({ error: "Unknown role" });
 
@@ -54,12 +67,7 @@ usersRouter.post("/", requirePermission("users", "create"), async (req, res, nex
     const user = await prisma.user.upsert({
       where: { email: body.email },
       update: {},
-      create: {
-        email: body.email,
-        firstName: body.firstName,
-        lastName: body.lastName,
-        passwordHash,
-      },
+      create: { email: body.email, firstName: body.firstName, lastName: body.lastName, passwordHash },
     });
 
     await prisma.userHospital.create({
@@ -80,16 +88,11 @@ usersRouter.post("/", requirePermission("users", "create"), async (req, res, nex
   }
 });
 
-// Admin-triggered password reset (spec §37 hardening item). No email
-// delivery yet — the admin communicates the new temporary password out of
-// band. A real deployment should force a change on next login; flagged as
-// a follow-up, not blocking for the MVP.
 const resetPasswordSchema = z.object({ newPassword: z.string().min(8) });
 
 usersRouter.post("/:id/reset-password", requirePermission("users", "create"), async (req, res, next) => {
   try {
     const { newPassword } = resetPasswordSchema.parse(req.body);
-
     const membership = await prisma.userHospital.findFirst({
       where: { userId: req.params.id, hospitalId: req.tenantHospitalId! },
     });
@@ -111,46 +114,29 @@ usersRouter.post("/:id/reset-password", requirePermission("users", "create"), as
   }
 });
 
-// ─── Deactivate / Reactivate user (with session revocation) ───
-const statusSchema = z.object({
-  status: z.enum(["ACTIVE", "INACTIVE"]),
-});
+const statusSchema = z.object({ status: z.enum(["ACTIVE", "INACTIVE"]) });
 
 usersRouter.patch("/:id/status", requirePermission("users", "create"), async (req, res, next) => {
   try {
     const { status } = statusSchema.parse(req.body);
-
-    // Verify user belongs to this hospital
     const membership = await prisma.userHospital.findFirst({
       where: { userId: req.params.id, hospitalId: req.tenantHospitalId! },
     });
     if (!membership) return res.status(404).json({ error: "User not found in this hospital" });
 
-    // Prevent self-deactivation
     if (req.params.id === req.auth!.userId && status === "INACTIVE") {
       return res.status(400).json({ error: "You cannot deactivate your own account" });
     }
 
-    // Update user status
-    await prisma.user.update({
-      where: { id: req.params.id },
-      data: { status },
-    });
+    await prisma.user.update({ where: { id: req.params.id }, data: { status } });
 
-    // Session revocation: if deactivating, invalidate by updating a token
-    // version. Since we use stateless JWTs, the most effective approach
-    // for the MVP is to add the user to a Redis deny-list until their
-    // current token expires. The auth middleware checks this list.
     if (status === "INACTIVE") {
       const { createClient } = await import("redis");
       const redis = createClient({ url: process.env.REDIS_URL ?? "redis://localhost:6379" });
       await redis.connect();
-
-      // Add to deny-list with TTL matching max token lifespan (8h default)
       await redis.set(`session:revoked:${req.params.id}`, "1", { EX: 8 * 60 * 60 });
       await redis.disconnect();
     } else {
-      // Re-activating: remove from deny-list
       const { createClient } = await import("redis");
       const redis = createClient({ url: process.env.REDIS_URL ?? "redis://localhost:6379" });
       await redis.connect();

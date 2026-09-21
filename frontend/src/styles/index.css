@@ -1,3 +1,50 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply font-sans text-ink-700 bg-ink-50;
+  }
+  h1, h2, h3 {
+    @apply font-semibold tracking-tight text-ink-900;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-ink-200 shadow-card;
+  }
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5;
+  }
+
+  /* Default action button — used across content pages (Patients, Billing,
+     Pharmacy, Inventory, AI Tools, etc.) → dusty teal */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-teal-gradient bg-[length:150%_150%] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-right disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-left;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-50 disabled:opacity-50;
+  }
+
+  /* Blue variant — reserved for the login screen / sidebar-adjacent CTAs */
+  .btn-brand {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand-gradient bg-[length:150%_150%] px-4 py-2 text-sm font-semibold text-white shadow-glow transition-all hover:bg-right disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-left;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-amber { @apply badge bg-warning-100 text-warning-700; }
+  .badge-green { @apply badge bg-success-100 text-success-700; }
+  .badge-red { @apply badge bg-error-100 text-error-700; }
+  .badge-brand { @apply badge bg-teal-100 text-teal-700; }
+
+  .input {
+    @apply w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-800 placeholder:text-ink-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100;
+  }
+}

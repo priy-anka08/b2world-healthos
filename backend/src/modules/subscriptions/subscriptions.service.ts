@@ -34,3 +34,20 @@ export async function setSubscriptionStatus(subscriptionId: string, status: stri
   }
   return prisma.subscription.update({ where: { id: subscriptionId }, data: { status } });
 }
+
+// --- Usage-limit enforcement (spec Phase 6) ---
+export async function getActiveSubscription(organizationId: string) {
+  return prisma.subscription.findFirst({
+    where: { organizationId, status: { in: ["active", "trialing"] } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function countOrgSeats(organizationId: string) {
+  const rows = await prisma.userHospital.findMany({
+    where: { hospital: { organizationId } },
+    select: { userId: true },
+    distinct: ["userId"],
+  });
+  return rows.length;
+}
