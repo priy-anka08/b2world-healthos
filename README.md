@@ -1,147 +1,77 @@
 # B2World HealthOS
 
 AI-powered, multi-tenant hospital operations & intelligence platform.
-Scaffolded from the B2World project assignment spec (24-page brief, 6 build
-phases, 44 numbered requirements).
+Built against a 24-page project spec (6 build phases, 44 numbered
+requirements) for B2World (BTOW Pvt. Ltd.).
 
-This repo is a **working foundation**, not a finished product: Phase 1
-(architecture, auth, RBAC, multi-tenancy, admin/onboarding, audit logging)
-plus two fully-wired example modules (Patients, Appointments) are real and
-runnable. Every other module (Phases 2-6) exists as a properly-placed,
-documented stub so the whole system's shape is visible and each piece can be
-built independently without redesigning the foundation. See
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for the phase-by-phase build order.
+**Status: ~85-90% complete.** Core hospital management, RBAC/multi-tenancy,
+all major clinical/operational modules, billing, reporting, notifications,
+patient portal, FHIR-lite, MFA, and the full self-hosted AI layer (OCR,
+RAG, Copilot, predictions, voice, multi-agent orchestrator) are built and
+tested. Remaining work is polish: broader UI coverage on a few pages,
+production deployment, and a security/error-handling pass — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Stack
 
-| Layer          | Choice                                                   |
-|----------------|-----------------------------------------------------------|
-| Backend        | Node.js + TypeScript + Express + Prisma                  |
-| Database       | PostgreSQL + pgvector extension                           |
-| Cache/queue    | Redis                                                      |
-| Frontend       | React + TypeScript + Vite + Tailwind + React Query        |
-| AI service     | Python + FastAPI, self-hosted via Ollama (no paid LLM API required — spec §39) |
-| OCR            | PaddleOCR                                                  |
-| Speech (later) | faster-whisper                                             |
-| Auth           | JWT, hospital-scoped tokens, RBAC via DB-defined permissions |
+| Layer          | Choice                                                                          |
+|----------------|----------------------------------------------------------------------------------|
+| Backend        | Node.js + TypeScript + Express + Prisma                                          |
+| Database       | PostgreSQL + pgvector extension                                                  |
+| Cache/queue    | Redis                                                                             |
+| Frontend       | React + TypeScript + Vite + Tailwind + React Query                               |
+| AI service     | Python + FastAPI, self-hosted via Ollama (no paid LLM API required — spec §39)   |
+| OCR            | PaddleOCR                                                                         |
+| Speech         | faster-whisper                                                                   |
+| Auth           | JWT (hospital-scoped tokens), RBAC via DB-defined permissions, TOTP MFA           |
+| API docs       | OpenAPI/Swagger at `/api/docs`                                                    |
+| Tests          | Vitest (backend)                                                                  |
 
-## Why this structure
+## What's built
 
-- **Multi-tenancy is enforced in code, not just the schema.** Every clinical
-  table carries `hospitalId`; `tenant.middleware.ts` derives the trusted
-  hospital id from the verified JWT (never from a client-supplied header);
-  every module's service layer must filter by it first. See
-  `backend/src/common/middleware/tenant.middleware.ts` for the checklist.
-- **RBAC is data-driven.** Roles and permissions live in the database
-  (`Role`, `Permission`, `RolePermission`), not hardcoded in route files, so
-  granting/revoking access doesn't require a deploy.
-- **AI is a governed layer, not a shortcut.** Every AI call is meant to be
-  logged via `AIRequest`/`AIOutput` (spec §38's flow: User → Auth → Role →
-  Permission → Data Scope → AI Service → Response), and AI-generated
-  clinical content (documentation drafts, extracted lab values) is never
-  auto-committed to the official record without human approval.
+**Core:** Auth (login, MFA, self-service password reset, session revocation),
+multi-tenancy, RBAC, hospital onboarding, audit logging, patients (with
+duplicate detection), practitioners/staff, appointments, departments.
+
+**Operations:** Beds/wards/rooms, pharmacy, general inventory (batch +
+expiry tracking), suppliers/purchase orders, billing (invoices, payments,
+refunds), laboratory (orders → results → review), assets (with predictive
+maintenance risk scoring).
+
+**AI (self-hosted, Ollama + PaddleOCR + faster-whisper):**
+- Documentation assistant, clinical summarization, hospital RAG assistant
+- Document OCR pipeline (classification + field extraction + human verification)
+- Voice assistant (transcription → read-only Copilot query)
+- HealthOS Copilot (natural-language ops questions)
+- Multi-agent orchestrator (Operations/Finance/Inventory agents)
+- Predictive analytics: bed occupancy, inventory reorder/anomaly, revenue
+  analytics/anomaly, lab turnaround, appointment no-show risk, equipment
+  maintenance risk
+
+**Governance & compliance building blocks:** every AI call is logged via
+`AIRequest`/`AIOutput` with a human-approval flag; patient consent tracking;
+patient data export; FHIR-shaped resource mapping; subscription seat-limit
+enforcement.
+
+**Not yet built:** white-label theming, real email delivery (password
+reset currently returns the token directly in dev mode), production
+deployment.
 
 ## Quick start (Docker)
 
-```bash
+```powershell
 cp .env.example .env
 # edit .env — at minimum set a real JWT_SECRET
 
-docker compose up -d postgres redis ollama
-cd backend
-npm install
-npx prisma migrate dev --name init
-npm run seed
-cd ..
-
-docker compose up backend frontend ai-service
+docker compose up -d --build backend ai-service frontend
+docker compose exec backend npm run seed
+docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec backend npm run test
 ```
 
-Then:
+Then open:
 - Frontend: http://localhost:5173
-- Backend health check: http://localhost:4000/health
-- AI service health check: http://localhost:8000/health
+- API docs: http://localhost:4000/api/docs
+- AI service health: http://localhost:8000/health
 
-### Demo logins (from `backend/seed/seed.ts`)
-
-| Role            | Email                        | Password       |
-|-----------------|-------------------------------|-----------------|
-| Super Admin     | superadmin@b2world.dev        | ChangeMe!123    |
-| Hospital Admin   | admin@demo-hospital.dev       | ChangeMe!123    |
-
-**Change these before any non-local deployment.**
-
-## Running without Docker
-
-```bash
-# Postgres + Redis running locally, matching .env
-cd backend && npm install && npx prisma migrate dev && npm run seed && npm run dev
-cd ../frontend && npm install && npm run dev
-cd ../ai-service && pip install -r requirements.txt && uvicorn app.main:app --reload
-```
-
-## Repository layout
-
-```
-backend/            Node/Express/Prisma API
-  prisma/schema.prisma   Full data model (spec §40 — 40+ entities)
-  src/common/             auth, RBAC guard, tenant middleware, audit, errors
-  src/modules/             one folder per feature area
-    auth/ organizations/ hospitals/ departments/ users/
-    patients/ appointments/ audit/        <- fully implemented (Phase 1)
-    staff/ beds/ laboratory/ pharmacy/ inventory/ billing/ assets/ ...
-    ai-copilot/ ai-ocr/ ai-rag/ ai-predictions/ subscriptions/  <- stubs, see each README.md
-  seed/seed.ts             roles, permissions, demo org/hospital/admin
-
-frontend/            React/Vite/Tailwind app
-  src/pages/               one folder per feature area (auth, dashboard done)
-  src/context/AuthContext.tsx   login + hospital-selection state
-  src/api/client.ts         axios instance with JWT injection
-
-ai-service/          Python/FastAPI self-hosted AI layer
-  app/routers/              one stub router per AI feature (documentation,
-                              summarization, rag, ocr, predictions, copilot)
-
-docs/                ARCHITECTURE.md, ROADMAP.md, SECURITY.md
-docker-compose.yml   postgres(+pgvector), redis, ollama, backend, frontend, ai-service
-```
-
-## Implementing the next module (pattern to copy)
-
-Every stub module's `README.md` (e.g. `backend/src/modules/billing/README.md`)
-points back to this pattern. In short:
-
-1. Look at `backend/src/modules/patients/` (full CRUD + tenant scoping +
-   audit logging + a domain-specific safety check) and
-   `backend/src/modules/appointments/` (booking + a computed endpoint).
-2. Write `<module>.service.ts`: plain functions, Prisma only, every query
-   filtered by `hospitalId` first.
-3. Write `<module>.routes.ts`: Express router behind `authMiddleware`,
-   `requireTenant`, `requirePermission(resource, action)`.
-4. Replace the stub import in `backend/src/app.ts`.
-5. Add permission rows for the new resource to `backend/seed/seed.ts` and
-   grant them to the right roles.
-6. Add a frontend page under `frontend/src/pages/<module>/` and a route in
-   `App.tsx`.
-7. Write an integration test proving Hospital A cannot read Hospital B's
-   data through the new module.
-
-## Documentation
-
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system diagram, AI pipeline, FHIR notes
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phase 1-6 checklist mapped to this repo
-- [`docs/SECURITY.md`](docs/SECURITY.md) — what's implemented, what's still a TODO before production
-
-## Explicitly out of scope for the MVP scaffold
-
-Per the spec, this is a foundation for a commercial product, not a finished
-compliance artifact:
-
-- No claim of HIPAA/DPDP compliance — that depends on the full
-  organization, process, and deployment, not just code (spec §37).
-- MFA, password-reset flows, and email/SMS delivery are flagged as Phase 1
-  hardening TODOs (see comments in `auth.service.ts` / `users.routes.ts`) —
-  wire a real provider before going live.
-- AI predictions (no-show risk, bed forecasts, maintenance risk, etc.) are
-  designed to be advisory signals surfaced with supporting data, never
-  autonomous decisions — keep that framing when you implement them.
+**Demo login:**

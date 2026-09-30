@@ -54,6 +54,7 @@ model Hospital {
   email          String?
   timezone       String   @default("Asia/Kolkata")
   status         OrgStatus @default(ACTIVE)
+  branding       Json?    // white-label: { logoEmoji, primaryColorHex, displayName } — spec Phase 6
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -220,7 +221,11 @@ model Patient {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  documents    PatientDocument[]
+    documents PatientDocument[]
+
+  
+  duplicateOf   Patient?  @relation("PatientDuplicates", fields: [duplicateOfId], references: [id])
+  duplicates    Patient[] @relation("PatientDuplicates")
   consents     PatientConsent[]
   appointments Appointment[]
   encounters   Encounter[]
@@ -266,6 +271,7 @@ model Practitioner {
   specialization String?
   licenseNumber  String?
   departmentId   String?
+  availability   Json?    // weekly windows: { mon: [{start:"09:00",end:"13:00"}], ... } — spec §7/§9
 
   appointments Appointment[]
   encounters   Encounter[]
@@ -311,6 +317,7 @@ enum AppointmentStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+  WAITLISTED
 }
 
 model Appointment {

@@ -9,21 +9,36 @@ interface BookInput {
   durationMins?: number;
 }
 
-export async function bookAppointment(input: BookInput) {
-  // Basic double-booking guard. A production version would also check the
-  // practitioner's configured availability windows / leave / shifts.
-  const conflict = await prisma.appointment.findFirst({
-    where: {
-      practitionerId: input.practitionerId,
-      status: { in: ["REQUESTED", "CONFIRMED", "CHECKED_IN"] },
-      scheduledAt: input.scheduledAt,
-    },
-  });
-  if (conflict) {
-    throw Object.assign(new Error("Practitioner already booked at this time"), { statusCode: 409 });
-  }
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
-  return prisma.appointment.create({
+export function withinAvailability(availability: unknown, scheduledAt: Date): boolean {
+  if (!availability || typeof availability !== "object") return true; // no windows set = always available
+  const windows = (availability as Record<string, { start: string; end: string }[]>)[DAY_KEYS[scheduledAt.getDay()]];
+  if (!windows || windows.length === 0) return false;
+  const minutes = scheduledAt.getHours() * 60 + scheduledAt.getMinutes();
+  return windows.some((w) => {
+    const [sh, sm] = w.start.split(":").map(Number);
+    const [eh, em] = w.end.split(":").map(Number);
+    return minutes >= sh * 60 + sm && minutes < eh * 60 + em;
+  });
+}
+
+// Books normally when the slot is free and within the doctor's configured
+// availability (spec §7). If either check fails, this does NOT hard-reject
+// — it creates a WAITLISTED appointment instead (spec §7 "waiting list"),
+// which staff can confirm later via PATCH /appointments/:id/confirm.
+export async function bookAppointment(input: BookInput) {
+  const [conflict, practitioner] = await Promise.all([
+    prisma.appointment.findFirst({
+      where: { practitionerId: input.practitionerId, status: { in: ["REQUESTED", "CONFIRMED", "CHECKED_IN"] }, scheduledAt: input.scheduledAt },
+    }),
+    prisma.practitioner.findUnique({ where: { id: input.practitionerId }, select: { availability: true } }),
+  ]);
+
+  const withinHours = withinAvailability(practitioner?.availability, input.scheduledAt);
+  const waitlisted = !!conflict || !withinHours;
+
+  const appointment = await prisma.appointment.create({
     data: {
       hospitalId: input.hospitalId,
       patientId: input.patientId,
@@ -31,9 +46,23 @@ export async function bookAppointment(input: BookInput) {
       departmentId: input.departmentId,
       scheduledAt: input.scheduledAt,
       durationMins: input.durationMins ?? 20,
-      status: "CONFIRMED",
+      status: waitlisted ? "WAITLISTED" : "CONFIRMED",
     },
   });
+
+  return { ...appointment, waitlisted, waitlistReason: waitlisted ? (conflict ? "slot_taken" : "outside_availability") : null };
+}
+
+export async function confirmWaitlisted(hospitalId: string, appointmentId: string) {
+  const appt = await prisma.appointment.findFirst({ where: { id: appointmentId, hospitalId, status: "WAITLISTED" } });
+  if (!appt) throw Object.assign(new Error("Waitlisted appointment not found"), { statusCode: 404 });
+
+  const conflict = await prisma.appointment.findFirst({
+    where: { practitionerId: appt.practitionerId, status: { in: ["REQUESTED", "CONFIRMED", "CHECKED_IN"] }, scheduledAt: appt.scheduledAt, id: { not: appt.id } },
+  });
+  if (conflict) throw Object.assign(new Error("That slot is now taken — reschedule instead"), { statusCode: 409 });
+
+  return prisma.appointment.update({ where: { id: appt.id }, data: { status: "CONFIRMED" } });
 }
 
 /**

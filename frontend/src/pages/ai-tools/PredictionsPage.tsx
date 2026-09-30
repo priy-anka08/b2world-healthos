@@ -52,6 +52,21 @@ interface InventoryAnomaly {
   spikeRatio: number | null;
 }
 
+interface EmergencyForecast {
+  scopedToDepartment: string;
+  sampleSizeAppointments: number;
+  hourlyVolume: number[];
+  busiestWindow: string;
+  recommendation: string;
+  disclaimer: string;
+}
+
+interface NoShowRisk {
+  appointmentId: string;
+  noShowProbability: number;
+  recommendation: string | null;
+  disclaimer: string;
+}
 const riskColor: Record<string, string> = {
   low: "bg-green-100 text-green-800",
   medium: "bg-amber-100 text-amber-800",
@@ -90,9 +105,19 @@ export default function PredictionsPage() {
     queryFn: () => api.get("/ai/predictions/lab-turnaround").then((r) => r.data),
   });
 
-  const { data: inventoryAnomalyData, isLoading: invAnomalyLoading } = useQuery<{ anomalies: InventoryAnomaly[]; disclaimer: string }>({
+    const { data: inventoryAnomalyData, isLoading: invAnomalyLoading } = useQuery<{ anomalies: InventoryAnomaly[]; disclaimer: string }>({
     queryKey: ["inventory-anomalies"],
     queryFn: () => api.get("/ai/predictions/inventory-anomalies").then((r) => r.data),
+  });
+
+  const { data: edForecast, isLoading: edLoading } = useQuery<EmergencyForecast>({
+    queryKey: ["emergency-forecast"],
+    queryFn: () => api.get("/ai/predictions/emergency-forecast").then((r) => r.data),
+  });
+
+  const { data: noShowData, isLoading: noShowLoading } = useQuery<NoShowRisk[]>({
+    queryKey: ["no-show-risk"],
+    queryFn: () => api.get("/ai/predictions/no-show-risk").then((r) => r.data),
   });
 
   const maxTrend = Math.max(1, ...(revenueAnalytics?.dailyTrend.map((d) => d.amount) ?? [1]));
@@ -205,8 +230,8 @@ export default function PredictionsPage() {
         )}
       </div>
 
-      {/* Inventory anomalies */}
-      <div className="bg-white border rounded-xl p-6">
+            {/* Inventory anomalies */}
+      <div className="bg-white border rounded-xl p-6 mb-6">
         <h2 className="font-semibold mb-3">Inventory Anomalies</h2>
         {invAnomalyLoading && <p className="text-sm text-slate-400">Loading...</p>}
         {inventoryAnomalyData?.anomalies.length === 0 && <p className="text-sm text-slate-400">No unusual dispensing patterns detected.</p>}
@@ -232,6 +257,56 @@ export default function PredictionsPage() {
               </tbody>
             </table>
             <p className="text-xs text-amber-700">{inventoryAnomalyData.disclaimer}</p>
+          </>
+        )}
+      </div>
+
+      {/* Emergency Department forecast */}
+      <div className="bg-white border rounded-xl p-6 mb-6">
+        <h2 className="font-semibold mb-3">Emergency Department Forecast</h2>
+        {edLoading && <p className="text-sm text-slate-400">Loading...</p>}
+        {edForecast && (
+          <>
+            <p className="text-sm mb-2">
+              Busiest window (last 90 days, <span className="font-medium">{edForecast.scopedToDepartment}</span>):{" "}
+              <span className="font-semibold text-slate-900">{edForecast.busiestWindow}</span>
+            </p>
+            <p className="text-xs text-slate-500 mb-3">{edForecast.recommendation} · based on {edForecast.sampleSizeAppointments} appointments</p>
+            <div className="flex items-end gap-0.5 h-12">
+              {edForecast.hourlyVolume.map((v, h) => (
+                <div key={h} className="flex-1 bg-slate-700 rounded-t" style={{ height: `${Math.max(4, (v / Math.max(...edForecast.hourlyVolume, 1)) * 100)}%` }} title={`${h}:00 — ${v}`} />
+              ))}
+            </div>
+            <p className="text-xs text-amber-700 mt-2">{edForecast.disclaimer}</p>
+          </>
+        )}
+      </div>
+
+      {/* No-show risk (upcoming) */}
+      <div className="bg-white border rounded-xl p-6">
+        <h2 className="font-semibold mb-3">Upcoming No-Show Risk</h2>
+        {noShowLoading && <p className="text-sm text-slate-400">Loading...</p>}
+        {noShowData?.length === 0 && <p className="text-sm text-slate-400">No appointments in the next 48 hours.</p>}
+        {noShowData && noShowData.length > 0 && (
+          <>
+            <table className="w-full text-sm mb-3">
+              <thead className="text-left text-slate-500">
+                <tr><th className="py-1">Risk</th><th className="py-1">Recommendation</th></tr>
+              </thead>
+              <tbody>
+                {noShowData.map((n) => (
+                  <tr key={n.appointmentId} className="border-t">
+                    <td className="py-2">
+                      <span className={`text-xs rounded-full px-2 py-0.5 ${n.noShowProbability >= 0.4 ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
+                        {Math.round(n.noShowProbability * 100)}%
+                      </span>
+                    </td>
+                    <td className="py-2 text-slate-600">{n.recommendation ?? "No action needed"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-amber-700">{noShowData[0]?.disclaimer}</p>
           </>
         )}
       </div>

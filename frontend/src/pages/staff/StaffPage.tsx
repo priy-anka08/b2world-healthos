@@ -133,6 +133,81 @@ export default function StaffPage() {
           </tbody>
         </table>
       </div>
+
+      <AttendancePanel staff={staff ?? []} />
+    </div>
+  );
+}
+
+function AttendancePanel({ staff }: { staff: { id: string; user: { firstName: string; lastName: string } }[] }) {
+  const queryClient = useQueryClient();
+  const [staffId, setStaffId] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [mode, setMode] = useState<"shift" | "leave">("shift");
+
+  const { data: shifts } = useQuery({
+    queryKey: ["staff-shifts"],
+    queryFn: () => api.get("/staff/shifts").then((r) => r.data),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.post("/staff/shifts", { staffId, startsAt: new Date(from).toISOString(), endsAt: new Date(to).toISOString(), status: mode === "leave" ? "leave" : "scheduled" }).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["staff-shifts"] });
+      setStaffId(""); setFrom(""); setTo("");
+    },
+  });
+
+  const markMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(`/staff/shifts/${id}/status`, { status }).then((r) => r.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["staff-shifts"] }),
+  });
+
+  return (
+    <div className="bg-white border rounded-xl p-6 mt-6">
+      <h2 className="font-semibold mb-3">Attendance & Leave</h2>
+      <div className="flex gap-2 flex-wrap mb-4">
+        <select value={mode} onChange={(e) => setMode(e.target.value as "shift" | "leave")} className="border rounded px-2 py-1 text-sm">
+          <option value="shift">Schedule shift</option>
+          <option value="leave">Request leave</option>
+        </select>
+        <select value={staffId} onChange={(e) => setStaffId(e.target.value)} className="border rounded px-2 py-1 text-sm">
+          <option value="">Select staff…</option>
+          {staff.map((s) => <option key={s.id} value={s.id}>{s.user.firstName} {s.user.lastName}</option>)}
+        </select>
+        <input type="datetime-local" className="border rounded px-2 py-1 text-sm" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input type="datetime-local" className="border rounded px-2 py-1 text-sm" value={to} onChange={(e) => setTo(e.target.value)} />
+        <button onClick={() => createMutation.mutate()} disabled={!staffId || !from || !to || createMutation.isPending} className="bg-slate-900 text-white rounded px-3 py-1.5 text-sm disabled:opacity-50">
+          {mode === "leave" ? "Submit leave" : "Add shift"}
+        </button>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-left text-slate-500">
+          <tr><th className="px-3 py-1.5">Staff</th><th className="px-3 py-1.5">From</th><th className="px-3 py-1.5">To</th><th className="px-3 py-1.5">Status</th><th className="px-3 py-1.5"></th></tr>
+        </thead>
+        <tbody>
+          {shifts?.map((s: { id: string; startsAt: string; endsAt: string; status: string; staff: { user: { firstName: string; lastName: string } } }) => (
+            <tr key={s.id} className="border-t">
+              <td className="px-3 py-1.5">{s.staff.user.firstName} {s.staff.user.lastName}</td>
+              <td className="px-3 py-1.5">{new Date(s.startsAt).toLocaleString()}</td>
+              <td className="px-3 py-1.5">{new Date(s.endsAt).toLocaleString()}</td>
+              <td className="px-3 py-1.5">
+                <span className={`text-xs rounded-full px-2 py-0.5 ${s.status === "leave" ? "bg-amber-100 text-amber-800" : s.status === "absent" ? "bg-red-100 text-red-800" : s.status === "completed" ? "bg-green-100 text-green-800" : "bg-slate-100"}`}>{s.status}</span>
+              </td>
+              <td className="px-3 py-1.5 space-x-2">
+                {s.status === "scheduled" && (
+                  <>
+                    <button onClick={() => markMutation.mutate({ id: s.id, status: "completed" })} className="text-xs text-green-700 underline">Present</button>
+                    <button onClick={() => markMutation.mutate({ id: s.id, status: "absent" })} className="text-xs text-red-700 underline">Absent</button>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

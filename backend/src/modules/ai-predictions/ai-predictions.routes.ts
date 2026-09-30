@@ -6,6 +6,7 @@ import {
   detectInventoryAnomalies,
   detectRevenueAnomaly,
   forecastBedOccupancy,
+  forecastEmergencyVolume,
   forecastLabTurnaround,
   getRevenueAnalytics,
   predictNoShowRisk,
@@ -53,4 +54,8 @@ aiPredictionsRouter.get("/no-show-risk/:appointmentId", requirePermission("appoi
     }
     next(err);
   }
+});
+
+aiPredictionsRouter.get("/emergency-forecast", requirePermission("appointments", "read"), async (req, res) => {
+  res.json(await forecastEmergencyVolume(req.tenantHospitalId!));
 });

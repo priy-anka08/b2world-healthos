@@ -304,3 +304,49 @@ export async function scoreUpcomingNoShowRisk(hospitalId: string) {
   for (const a of upcoming) results.push(await predictNoShowRisk(hospitalId, a.id));
   return results;
 }
+
+// --- Emergency Department forecasting (spec §16) ---
+export async function forecastEmergencyVolume(hospitalId: string) {
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+  const emergencyDept = await prisma.department.findFirst({
+    where: { hospitalId, name: { contains: "emergency", mode: "insensitive" } },
+  });
+
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      hospitalId,
+      scheduledAt: { gte: ninetyDaysAgo },
+      ...(emergencyDept ? { departmentId: emergencyDept.id } : {}),
+    },
+    select: { scheduledAt: true },
+  });
+
+  const hourCounts = new Array(24).fill(0);
+  for (const a of appointments) hourCounts[a.scheduledAt.getHours()]++;
+
+  // Busiest rolling 4-hour window
+  let bestStart = 0;
+  let bestSum = -1;
+  for (let h = 0; h < 24; h++) {
+    const sum = [0, 1, 2, 3].reduce((s, o) => s + hourCounts[(h + o) % 24], 0);
+    if (sum > bestSum) {
+      bestSum = sum;
+      bestStart = h;
+    }
+  }
+  const formatHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? "AM" : "PM"}`;
+
+  return {
+    scopedToDepartment: emergencyDept?.name ?? "all appointments (no department named 'Emergency' found)",
+    sampleSizeAppointments: appointments.length,
+    hourlyVolume: hourCounts,
+    busiestWindow: `${formatHour(bestStart)} - ${formatHour((bestStart + 4) % 24)}`,
+    recommendation: "Consider extra staffing/bed availability during the busiest window.",
+    isEstimate: true,
+    method: "rule_based_v1",
+    disclaimer:
+      "A historical pattern from the last 90 days of appointment timestamps — not a guaranteed forecast (spec §16).",
+  };
+}

@@ -70,3 +70,15 @@ appointmentsRouter.get("/:id/no-show-risk", requirePermission("appointments", "r
     next(err);
   }
 });
+
+appointmentsRouter.patch("/:id/confirm", requirePermission("appointments", "create"), async (req, res, next) => {
+  try {
+    const { confirmWaitlisted } = await import("./appointments.service");
+    const appt = await confirmWaitlisted(req.tenantHospitalId!, req.params.id);
+    await writeAuditLog({ hospitalId: req.tenantHospitalId, userId: req.auth!.userId, action: "appointment.confirm_waitlisted", resourceId: appt.id });
+    res.json(appt);
+  } catch (err) {
+    if (err instanceof Error && "statusCode" in err) return next(new AppError((err as never as { statusCode: number }).statusCode, err.message));
+    next(err);
+  }
+});

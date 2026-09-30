@@ -63,6 +63,17 @@ export default function DashboardPage() {
     queryFn: () => api.get("/billing/invoices").then((r) => r.data),
   });
 
+  const { data: summary } = useQuery<{
+    emergency: { casesToday: number; hasDedicatedDepartment: boolean };
+    departmentPerformance: { name: string; appointmentsThisMonth: number }[];
+    avgWaitingTimeMinutesToday: number | null;
+    pharmacy: { consumptionThisMonth: number };
+    laboratory: { pendingOrders: number; avgTurnaroundDaysToClearBacklog: number | null };
+  }>({
+    queryKey: ["reports-summary"],
+    queryFn: () => api.get("/reports/summary").then((r) => r.data),
+  });
+
   const pendingLabCount = labOrders?.filter((o) => o.status !== "reviewed").length;
   const todaysRevenue = invoices
     ?.flatMap((inv) => inv.payments)
@@ -112,11 +123,36 @@ export default function DashboardPage() {
           tone="green"
         />
         <StatCard
-          icon="💳"
           label="Pending payments"
           value={pendingPayments !== undefined ? `₹${pendingPayments.toLocaleString("en-IN")}` : "—"}
           tone={pendingPayments && pendingPayments > 0 ? "amber" : "green"}
         />
+        <StatCard
+          icon="🚨"
+          label="Emergency cases today"
+          value={summary?.emergency.casesToday ?? "—"}
+          hint={summary && !summary.emergency.hasDedicatedDepartment ? "No 'Emergency' dept found" : undefined}
+          tone={summary?.emergency.casesToday ? "red" : "green"}
+        />
+        <StatCard icon="⏱️" label="Avg waiting time" value={summary?.avgWaitingTimeMinutesToday != null ? `${summary.avgWaitingTimeMinutesToday} min` : "—"} tone="brand" />
+        <StatCard icon="💊" label="Pharmacy consumption (month)" value={summary?.pharmacy.consumptionThisMonth ?? "—"} tone="brand" />
+        <StatCard icon="🧪" label="Lab backlog clear-time" value={summary?.laboratory.avgTurnaroundDaysToClearBacklog != null ? `${summary.laboratory.avgTurnaroundDaysToClearBacklog}d` : "—"} tone={summary?.laboratory.pendingOrders ? "amber" : "green"} />
+      </div>
+
+      <div className="card p-6 mb-8">
+        <h2 className="font-semibold mb-3">Department performance (this month)</h2>
+        {summary?.departmentPerformance.length === 0 && <p className="text-sm text-ink-400">No department data yet.</p>}
+        <div className="space-y-2">
+          {summary?.departmentPerformance.map((d) => (
+            <div key={d.name} className="flex items-center gap-3">
+              <span className="text-sm w-32 truncate">{d.name}</span>
+              <div className="flex-1 bg-ink-100 rounded-full h-2">
+                <div className="bg-teal-500 h-2 rounded-full" style={{ width: `${Math.min(100, (d.appointmentsThisMonth / Math.max(...summary.departmentPerformance.map((x) => x.appointmentsThisMonth), 1)) * 100)}%` }} />
+              </div>
+              <span className="text-xs text-ink-400 w-10 text-right">{d.appointmentsThisMonth}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">

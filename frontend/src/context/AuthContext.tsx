@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { api } from "@/api/client";
 
 interface HospitalMembership {
@@ -15,13 +15,26 @@ interface AuthUser {
   isSuperAdmin: boolean;
 }
 
+interface RegisterInput {
+  hospitalCode: string;
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   hospitals: HospitalMembership[];
   activeHospitalId: string | null;
+  permissions: string[];
+  isRestoring: boolean;
+  hasPermission: (resource: string) => boolean;
   login: (email: string, password: string) => Promise<{ needsHospitalSelection: boolean; mfaRequired?: boolean; userId?: string }>;
   verifyMfa: (userId: string, token: string) => Promise<{ needsHospitalSelection: boolean }>;
   selectHospital: (hospitalId: string) => Promise<void>;
+  register: (input: RegisterInput) => Promise<{ needsHospitalSelection: boolean }>;
   logout: () => void;
 }
 
@@ -31,16 +44,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hospitals, setHospitals] = useState<HospitalMembership[]>([]);
   const [activeHospitalId, setActiveHospitalId] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [isRestoring, setIsRestoring] = useState(true);
 
-  function applyLoginResult(data: { token: string; user: AuthUser; hospitals: HospitalMembership[] }) {
+  async function loadPermissions() {
+    try {
+      const { data } = await api.get("/auth/permissions");
+      setPermissions(data.permissions);
+    } catch {
+      setPermissions([]);
+    }
+  }
+
+  useEffect(() => {
+    const token = localStorage.getItem("healthos_token");
+    if (!token) {
+      setIsRestoring(false);
+      return;
+    }
+    api
+      .get("/auth/me")
+      .then(async ({ data }) => {
+        setUser(data.user);
+        setHospitals(data.hospitals);
+        setActiveHospitalId(data.activeHospitalId);
+        if (data.activeHospitalId || data.user.isSuperAdmin) await loadPermissions();
+      })
+      .catch(() => {
+        localStorage.removeItem("healthos_token");
+      })
+      .finally(() => setIsRestoring(false));
+  }, []);
+
+  async function applyLoginResult(data: { token: string; user: AuthUser; hospitals: HospitalMembership[] }) {
     localStorage.setItem("healthos_token", data.token);
     setUser(data.user);
     setHospitals(data.hospitals);
 
-    if (data.user.isSuperAdmin || data.hospitals.length !== 1) {
-      return { needsHospitalSelection: !data.user.isSuperAdmin && data.hospitals.length > 1 };
+    if (data.user.isSuperAdmin) {
+      await loadPermissions();
+      return { needsHospitalSelection: false };
+    }
+    if (data.hospitals.length !== 1) {
+      return { needsHospitalSelection: data.hospitals.length > 1 };
     }
     setActiveHospitalId(data.hospitals[0].id);
+    await loadPermissions();
     return { needsHospitalSelection: false };
   }
 
@@ -61,6 +110,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data } = await api.post("/auth/select-hospital", { hospitalId });
     localStorage.setItem("healthos_token", data.token);
     setActiveHospitalId(hospitalId);
+    await loadPermissions();
+  }
+
+  async function register(input: RegisterInput) {
+    const { data } = await api.post("/portal/register", input);
+    return applyLoginResult(data);
   }
 
   function logout() {
@@ -68,10 +123,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setHospitals([]);
     setActiveHospitalId(null);
+    setPermissions([]);
+  }
+
+  function hasPermission(resource: string) {
+    return permissions.includes("*") || permissions.some((p) => p.startsWith(`${resource}:`));
   }
 
   return (
-    <AuthContext.Provider value={{ user, hospitals, activeHospitalId, login, verifyMfa, selectHospital, logout }}>
+    <AuthContext.Provider
+      value={{
+        user, hospitals, activeHospitalId, permissions, isRestoring,
+        hasPermission, login, verifyMfa, selectHospital, register, logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

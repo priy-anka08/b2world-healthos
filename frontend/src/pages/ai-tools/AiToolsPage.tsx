@@ -18,6 +18,13 @@ interface DocDraft {
   plan?: string;
 }
 
+interface OrchestratorResult {
+  question: string;
+  agentsInvoked: string[];
+  results: { agent: string; data: unknown }[];
+  disclaimer: string;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -79,6 +86,12 @@ export default function AiToolsPage() {
     mediaRecorderRef.current?.stop();
     setIsRecording(false);
   }
+
+  // --- Multi-agent orchestrator ---
+  const [orchestratorQuestion, setOrchestratorQuestion] = useState("");
+  const orchestratorMutation = useMutation({
+    mutationFn: () => api.post("/ai/orchestrator/query", { question: orchestratorQuestion }).then((r) => r.data as OrchestratorResult),
+  });
 
   const draft: DocDraft | null =
     draftMutation.data?.draft && typeof draftMutation.data.draft === "object" ? draftMutation.data.draft : null;
@@ -198,7 +211,7 @@ export default function AiToolsPage() {
       </Card>
 
       {/* Voice Assistant */}
-      <Card>
+      <Card className="mb-5">
         <h2 className="font-semibold mb-1">Voice Assistant</h2>
         <p className="text-xs text-ink-500 mb-3">
           Speak a question — it's transcribed (Whisper) and answered by the same read-only Copilot above.
@@ -216,6 +229,47 @@ export default function AiToolsPage() {
           <div className="mt-4 pt-4 border-t border-ink-100 text-sm bg-ink-50 rounded-xl p-3 space-y-1">
             <p className="text-xs text-ink-400">You said: "{voiceMutation.data.transcript}"</p>
             <p>{voiceMutation.data.answer}</p>
+          </div>
+        )}
+      </Card>
+
+      {/* Multi-Agent Orchestrator */}
+      <Card>
+        <h2 className="font-semibold mb-1">Multi-Agent Orchestrator</h2>
+        <p className="text-xs text-ink-500 mb-3">
+          Routes your question to one or more specialist agents (Operations, Finance, Inventory) and combines
+          their read-only reports. No agent can create, update, or delete anything (spec §34).
+        </p>
+        <div className="flex gap-2">
+          <input
+            placeholder="e.g. How are we doing on beds and revenue this month?"
+            className="input flex-1"
+            value={orchestratorQuestion}
+            onChange={(e) => setOrchestratorQuestion(e.target.value)}
+          />
+          <button
+            onClick={() => orchestratorMutation.mutate()}
+            disabled={orchestratorMutation.isPending || !orchestratorQuestion}
+            className="btn-primary whitespace-nowrap"
+          >
+            {orchestratorMutation.isPending ? "Running agents..." : "Run agents"}
+          </button>
+        </div>
+
+        {orchestratorMutation.data && (
+          <div className="mt-4 pt-4 border-t border-ink-100 text-sm space-y-3">
+            <p className="text-xs text-amber-700 font-medium">{orchestratorMutation.data.disclaimer}</p>
+            <div className="flex gap-1.5 flex-wrap">
+              {orchestratorMutation.data.agentsInvoked.map((a) => (
+                <span key={a} className="badge-brand capitalize">{a} agent</span>
+              ))}
+            </div>
+            {orchestratorMutation.data.results.map((r) => (
+              <div key={r.agent} className="bg-ink-50 rounded-xl p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-500 mb-1 capitalize">{r.agent}</p>
+                <pre className="text-xs overflow-x-auto whitespace-pre-wrap">{JSON.stringify(r.data, null, 2)}</pre>
+              </div>
+            ))}
           </div>
         )}
       </Card>

@@ -122,6 +122,7 @@ export default function DoctorsPage() {
               <th className="px-4 py-2">Email</th>
               <th className="px-4 py-2">Specialization</th>
               <th className="px-4 py-2">License</th>
+              <th className="px-4 py-2">Availability</th>
             </tr>
           </thead>
           <tbody>
@@ -148,7 +149,20 @@ export default function DoctorsPage() {
                   </td>
                   <td className="px-4 py-2">{p.user.email}</td>
                   <td className="px-4 py-2">{p.specialization ?? "—"}</td>
-                  <td className="px-4 py-2">{p.licenseNumber ?? "—"}</td>
+                                    <td className="px-4 py-2">{p.licenseNumber ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <input
+                      placeholder="e.g. 09:00-13:00"
+                      className="border rounded px-2 py-1 text-xs w-32"
+                      onBlur={(e) => {
+                        if (!e.target.value) return;
+                        const [start, end] = e.target.value.split("-");
+                        const weekdays = { mon: [{ start, end }], tue: [{ start, end }], wed: [{ start, end }], thu: [{ start, end }], fri: [{ start, end }] };
+                        api.put(`/practitioners/${p.id}/availability`, weekdays);
+                      }}
+                    />
+                    <p className="text-[10px] text-slate-400 mt-0.5">Mon–Fri, blur to save</p>
+                  </td>
                 </tr>
               )
             )}

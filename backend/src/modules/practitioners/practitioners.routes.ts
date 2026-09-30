@@ -37,3 +37,18 @@ practitionersRouter.post("/", requirePermission("practitioners", "create"), asyn
     next(err);
   }
 });
+
+const windowSchema = z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/) });
+const availabilitySchema = z.record(z.array(windowSchema));
+
+practitionersRouter.put("/:id/availability", requirePermission("practitioners", "create"), async (req, res, next) => {
+  try {
+    const { setAvailability } = await import("./practitioners.service");
+    const body = availabilitySchema.parse(req.body);
+    const practitioner = await setAvailability(req.tenantHospitalId!, req.params.id, body);
+    res.json(practitioner);
+  } catch (err) {
+    if (err instanceof Error && "statusCode" in err) return res.status((err as never as { statusCode: number }).statusCode).json({ error: err.message });
+    next(err);
+  }
+});

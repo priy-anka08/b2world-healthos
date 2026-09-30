@@ -90,7 +90,7 @@ export default function InventoryPage() {
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="bg-slate-900 text-white rounded-lg px-4 py-2 text-sm font-medium"
+          className="btn-primary"
         >
           {showForm ? "Cancel" : "+ Add item"}
         </button>
@@ -165,7 +165,7 @@ export default function InventoryPage() {
           <button
             type="submit"
             disabled={createMutation.isPending}
-            className="bg-slate-900 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
+            className="btn-primary disabled:opacity-50"
           >
             {createMutation.isPending ? "Saving..." : "Save item"}
           </button>
@@ -257,7 +257,7 @@ export default function InventoryPage() {
                         <button
                           onClick={() => batchMutation.mutate({ id: item.id, payload: batchForm })}
                           disabled={!batchForm.batchNumber || !batchForm.quantity || !batchForm.expiryDate}
-                          className="bg-slate-900 text-white rounded px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                          className="btn-primary text-xs px-3 py-1.5"
                         >
                           Add batch
                         </button>

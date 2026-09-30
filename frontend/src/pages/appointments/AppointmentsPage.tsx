@@ -238,7 +238,15 @@ export default function AppointmentsPage() {
                   Dr. {a.practitioner.user.firstName} {a.practitioner.user.lastName}
                 </td>
                 <td className="px-4 py-2">
-                  <span className="text-xs bg-slate-100 rounded-full px-2 py-1">{a.status}</span>
+                  <span className={`text-xs rounded-full px-2 py-1 ${a.status === "WAITLISTED" ? "bg-amber-100 text-amber-800" : "bg-slate-100"}`}>{a.status}</span>
+                  {a.status === "WAITLISTED" && (
+                    <button
+                      onClick={() => api.patch(`/appointments/${a.id}/confirm`).then(() => queryClient.invalidateQueries({ queryKey: ["appointments-list"] }))}
+                      className="ml-2 text-xs text-green-700 underline"
+                    >
+                      Confirm
+                    </button>
+                  )}
                 </td>
                 <td className="px-4 py-2 space-x-3">
                   <button onClick={() => setEstimateFor(a.id)} className="text-xs text-blue-600 underline">

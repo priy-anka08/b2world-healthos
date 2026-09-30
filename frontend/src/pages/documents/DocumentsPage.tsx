@@ -64,7 +64,7 @@ export default function DocumentsPage() {
           </select>
           <textarea required placeholder="Paste the document text here" rows={6} className="w-full border rounded-lg px-3 py-2 text-sm"
             value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
-          <button type="submit" disabled={createMutation.isPending} className="bg-slate-900 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50">
+          <button type="submit" disabled={createMutation.isPending} className="btn-primary">
             {createMutation.isPending ? "Saving..." : "Save document"}
           </button>
         </form>

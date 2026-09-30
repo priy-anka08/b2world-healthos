@@ -4,7 +4,7 @@ import { authMiddleware } from "@/common/middleware/auth.middleware";
 import { requireTenant } from "@/common/middleware/tenant.middleware";
 import { requirePermission } from "@/common/guards/rbac.guard";
 import { writeAuditLog } from "@/common/utils/audit";
-import { createStaff, listStaff } from "./staff.service";
+import { createShift, createStaff, listShifts, listStaff, markShiftStatus } from "./staff.service";
 import { generateScheduleSuggestion, applySchedule } from "./staff-scheduling.service";
 
 export const staffRouter = Router();
@@ -95,6 +95,44 @@ staffRouter.post("/schedule/apply", requirePermission("staff", "create"), async 
 
     res.status(201).json({ shiftsCreated: created.length, shifts: created });
   } catch (err) {
+    next(err);
+  }
+});
+
+import { createShift, listShifts, markShiftStatus } from "./staff.service"; // merge into the existing import line above instead of duplicating
+
+staffRouter.get("/shifts", requirePermission("staff", "read"), async (req, res) => {
+  const from = req.query.from ? new Date(req.query.from as string) : undefined;
+  const to = req.query.to ? new Date(req.query.to as string) : undefined;
+  res.json(await listShifts(req.tenantHospitalId!, { from, to }));
+});
+
+const shiftSchema = z.object({
+  staffId: z.string().uuid(),
+  startsAt: z.coerce.date(),
+  endsAt: z.coerce.date(),
+  status: z.enum(["scheduled", "leave"]).default("scheduled"),
+});
+
+staffRouter.post("/shifts", requirePermission("staff", "create"), async (req, res, next) => {
+  try {
+    const body = shiftSchema.parse(req.body);
+    const shift = await createShift(req.tenantHospitalId!, body.staffId, body.startsAt, body.endsAt, body.status);
+    await writeAuditLog({ hospitalId: req.tenantHospitalId, userId: req.auth!.userId, action: body.status === "leave" ? "staff.leave_request" : "staff.shift_create", resourceId: shift.id });
+    res.status(201).json(shift);
+  } catch (err) {
+    next(err);
+  }
+});
+
+staffRouter.patch("/shifts/:id/status", requirePermission("staff", "create"), async (req, res, next) => {
+  try {
+    const { status } = z.object({ status: z.enum(["scheduled", "completed", "absent", "leave"]) }).parse(req.body);
+    const shift = await markShiftStatus(req.tenantHospitalId!, req.params.id, status);
+    await writeAuditLog({ hospitalId: req.tenantHospitalId, userId: req.auth!.userId, action: "staff.attendance_mark", resourceId: shift.id, metadata: { status } });
+    res.json(shift);
+  } catch (err) {
+    if (err instanceof Error && "statusCode" in err) return res.status((err as never as { statusCode: number }).statusCode).json({ error: err.message });
     next(err);
   }
 });

@@ -42,6 +42,7 @@ import { inventoryRouter } from "@/modules/inventory/inventory.routes";
 import { aiOcrRouter } from "@/modules/ai-ocr/ai-ocr.routes";
 import { aiVoiceRouter } from "@/modules/ai-voice/ai-voice.routes";
 import { aiOrchestratorRouter } from "@/modules/ai-orchestrator/ai-orchestrator.routes";
+import { monitoringRouter } from "@/modules/monitoring/monitoring.routes";
 
 export function createApp() {
   const app = express();
@@ -50,7 +51,7 @@ export function createApp() {
   app.use(cors({ origin: env.corsOrigin, credentials: true }));
   app.use(express.json({ limit: "5mb" }));
   app.use(pinoHttp({ redact: ["req.headers.authorization"] }));
-  app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 500, standardHeaders: true }));
+  app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 2000, standardHeaders: true }));
 
   app.get("/health", (_req, res) => res.json({ status: "ok", service: "healthos-backend" }));
   app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
@@ -90,8 +91,14 @@ export function createApp() {
   v1.use("/ai/ocr", aiOcrRouter);
   v1.use("/ai/voice", aiVoiceRouter);
   v1.use("/ai/orchestrator", aiOrchestratorRouter);
+  v1.use("/monitoring", monitoringRouter);
 
   app.use("/api/v1", v1);
+
+  app.use((req, res) => {
+    res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
+  });
+
   app.use(errorHandler);
   return app;
 }

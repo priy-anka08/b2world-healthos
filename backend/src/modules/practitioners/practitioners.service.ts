@@ -54,3 +54,9 @@ export async function createPractitioner(input: CreatePractitionerInput) {
     include: { user: true },
   });
 }
+
+export async function setAvailability(hospitalId: string, practitionerId: string, availability: unknown) {
+  const practitioner = await prisma.practitioner.findFirst({ where: { id: practitionerId, hospitalId } });
+  if (!practitioner) throw Object.assign(new Error("Practitioner not found"), { statusCode: 404 });
+  return prisma.practitioner.update({ where: { id: practitionerId }, data: { availability: availability as never } });
+}
