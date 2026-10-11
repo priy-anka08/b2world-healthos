@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -37,6 +37,7 @@
     "@types/node": "^20.14.15",
     "@types/swagger-ui-express": "^4.1.6",
     "prisma": "^5.19.0",
+    "tsc-alias": "^1.9.7",
     "tsx": "^4.16.5",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
