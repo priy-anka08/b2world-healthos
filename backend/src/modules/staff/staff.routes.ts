@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "@/common/middleware/auth.middleware";
 import { requireTenant } from "@/common/middleware/tenant.middleware";
@@ -41,7 +41,7 @@ staffRouter.post("/", requirePermission("staff", "create"), async (req, res, nex
   }
 });
 
-// ─── Staff Scheduling Suggestion (spec §27) ───
+// â”€â”€â”€ Staff Scheduling Suggestion (spec Â§27) â”€â”€â”€
 const scheduleQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   departmentId: z.string().uuid().optional(),
@@ -69,7 +69,7 @@ staffRouter.post("/schedule/suggest", requirePermission("staff", "create"), asyn
   }
 });
 
-// ─── Apply approved schedule ───
+// â”€â”€â”€ Apply approved schedule â”€â”€â”€
 const applySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   shifts: z.array(
@@ -99,7 +99,7 @@ staffRouter.post("/schedule/apply", requirePermission("staff", "create"), async 
   }
 });
 
-import { createShift, listShifts, markShiftStatus } from "./staff.service"; // merge into the existing import line above instead of duplicating
+
 
 staffRouter.get("/shifts", requirePermission("staff", "read"), async (req, res) => {
   const from = req.query.from ? new Date(req.query.from as string) : undefined;
